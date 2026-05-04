@@ -705,7 +705,7 @@ def add_student_api():
 
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         
-        encodings = face_recognition.face_encodings(rgb_img)
+        encodings = face_recognition.face_encodings(rgb_img, num_jitters=10)
         if not encodings:
             return jsonify({"success": False, "message": "No face found in the image. Please use a clearer photo."}), 400
             
@@ -1152,7 +1152,7 @@ def scan_frame():
             return jsonify({"matched": False, "reason": "no_students"})
 
         # ── Advanced Strict Verification ──────────────────────────────────
-        TOLERANCE = 0.52  # Balanced threshold for reliability & security
+        TOLERANCE = 0.58  # Balanced threshold for reliability & security (increased from 0.52)
         
         # 1. Check ALL students in class to find the absolute best match
         cls_doc = db_conn.collection("classes").document(class_id).get()
