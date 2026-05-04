@@ -1151,61 +1151,67 @@ def scan_frame():
         if not student_ids:
             return jsonify({"matched": False, "reason": "no_students"})
 
-        best_match_uid  = None
-        best_match_dist = 1.0          # lower = better; threshold 0.55
-        best_match_data = {}
-
-        for sid in student_ids:
-            user_doc = db_conn.collection("users").document(sid).get()
-            if not user_doc.exists:
-                continue
-            user_data = user_doc.to_dict()
-            enc_list  = user_data.get("face_encoding")
-            if not enc_list:
-                continue
-
-            known_enc = np.array(enc_list, dtype=float)
-            dist      = face_recognition.face_distance([known_enc], frame_enc)[0]
-            
-            if dist < best_match_dist:
-                best_match_dist = dist
-                best_match_uid  = sid
-                best_match_data = user_data
-
-        # ── Strict Tolerance Check ──────────────────────────────────────────
-        # Standard face_recognition tolerance is 0.60.
-        # We use 0.58 for a good balance of accuracy and reliability.
-        TOLERANCE = 0.58
+        # ── Advanced Strict Verification ──────────────────────────────────
+        TOLERANCE = 0.52  # Balanced threshold for reliability & security
         
-        if best_match_uid and best_match_dist <= TOLERANCE:
-            print(f"✅ VERIFIED MATCH: {best_match_data.get('name')} (Dist: {best_match_dist:.4f})")
-            # ── Mark present in Firestore ──────────────────────────────────
-            from datetime import datetime, date
+        # 1. Check ALL students in class to find the absolute best match
+        cls_doc = db_conn.collection("classes").document(class_id).get()
+        class_student_ids = cls_doc.to_dict().get("student_ids", []) if cls_doc.exists else []
+        
+        if student_uid and student_uid not in class_student_ids:
+            class_student_ids.append(student_uid)
+
+        abs_best_uid = None
+        abs_best_dist = 1.0
+        abs_best_data = {}
+        
+        for sid in class_student_ids:
+            u_doc = db_conn.collection("users").document(sid).get()
+            if not u_doc.exists: continue
+            u_data = u_doc.to_dict()
+            u_enc = u_data.get("face_encoding")
+            if not u_enc: continue
+            
+            d = face_recognition.face_distance([np.array(u_enc)], frame_enc)[0]
+            if d < abs_best_dist:
+                abs_best_dist = d
+                abs_best_uid = sid
+                abs_best_data = u_data
+
+        # ── Verification Logic ────────────────────────────────────────────
+        is_legit = False
+        if abs_best_uid and abs_best_dist <= TOLERANCE:
+            if student_uid:
+                # If a specific student was selected, they MUST be the best match
+                if abs_best_uid == student_uid:
+                    is_legit = True
+                else:
+                    print(f"❌ REJECTED: Face matches {abs_best_data.get('name')} (Dist: {abs_best_dist:.4f}) better than target student.")
+            else:
+                is_legit = True
+
+        if is_legit:
+            print(f"✅ VERIFIED MATCH: {abs_best_data.get('name')} (Dist: {abs_best_dist:.4f})")
+            
+            # ── Mark present in Firestore using standard service function ──
+            from backend.firebase_service import mark_attendance
+            from datetime import date
             target_date = data.get("date") or date.today().isoformat()
             
-            db_conn.collection("attendance") \
-                   .document(class_id) \
-                   .collection(target_date) \
-                   .document(best_match_uid) \
-                   .set({
-                       "status":      "present",
-                       "timestamp":   datetime.utcnow().isoformat() + "Z",
-                       "student_uid": best_match_uid,
-                       "name":        best_match_data.get("name") or "Unknown",
-                       "email":       best_match_data.get("email") or "—",
-                       "roll_number": best_match_data.get("roll_number") or "—"
-                   })
+            mark_attendance(class_id, abs_best_uid, "present", target_date)
 
             return jsonify({
                 "matched":     True,
-                "student_uid": best_match_uid,
-                "name":        best_match_data.get("name") or "Unknown",
-                "email":       best_match_data.get("email") or "—",
-                "roll_number": best_match_data.get("roll_number") or "—",
-                "distance":    round(float(best_match_dist), 3)
+                "student_uid": abs_best_uid,
+                "name":        abs_best_data.get("name") or "Unknown",
+                "email":       abs_best_data.get("email") or "—",
+                "roll_number": abs_best_data.get("roll_number") or "—",
+                "distance":    round(float(abs_best_dist), 4)
             })
-
-        return jsonify({"matched": False, "reason": "no_match"})
+        else:
+            if abs_best_uid:
+                print(f"⌛ No Match: Best match was {abs_best_data.get('name')} but Dist ({abs_best_dist:.4f}) > TOLERANCE ({TOLERANCE})")
+            return jsonify({"matched": False, "reason": "no_match", "dist": round(abs_best_dist, 4)})
 
     except Exception as e:
         print("🔥 SCAN-FRAME ERROR:", e)

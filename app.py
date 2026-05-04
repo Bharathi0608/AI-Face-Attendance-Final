@@ -11,18 +11,6 @@ from config.firebase_config import get_firestore
 db = get_firestore()
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-CORS(app)
-
-# ✅ ADD THIS LINE
-app.register_blueprint(extra_bp)
-# Load env
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except:
-    pass
-
-app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.environ.get("SECRET_KEY", "change_this_in_production_xyz")
 
 CORS(app)
@@ -139,4 +127,4 @@ if __name__ == "__main__":
 
     threading.Timer(1.5, open_browser).start()
 
-    app.run(debug=True, use_reloader=False)
+    app.run(debug=True, use_reloader=True)

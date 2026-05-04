@@ -1550,10 +1550,8 @@ def mark_attendance(class_id, student_uid, status, today=None):
     c_data = class_doc.to_dict() if class_doc.exists else {}
     subject_name = c_data.get("name", "Unknown Class")
 
-    # Readable Document ID for Firebase Console: USN_Name
-    # Fallback to UID if name/roll is missing
-    doc_id = f"{s_data.get('roll_number', 'NA')}_{s_data.get('name', 'Unknown')}"
-    if doc_id == "NA_Unknown": doc_id = student_uid
+    # Standardizing on student_uid as the document ID for consistency across the app
+    doc_id = student_uid
 
     db.collection("attendance").document(class_id).collection(today).document(doc_id).set({
         "status":       status,
